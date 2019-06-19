@@ -1,5 +1,5 @@
 import pytest
-from asyncio_primitives import ConditionRunner, AsyncContextCounter, wait_started
+from asyncio_primitives import ConditionRunner, AsyncContextCounter, wait_started, ConditionAsyncNotify
 import asyncio
 
 pytestmark = pytest.mark.asyncio
@@ -42,3 +42,23 @@ async def test_custom_condition():
     await count.notify_all()
     print(chck)
     assert chck == [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15]
+
+
+async def test_async_notify():
+
+    cond = ConditionAsyncNotify()
+    chk = []
+
+    async def hello(j):
+        async with cond:
+            chk.append(j)
+        chk.append(j)
+
+    for x in range(4):
+        await wait_started(hello(x))
+
+    await cond.notify_all()
+    chk.append(10)
+    assert chk == [0, 1, 2, 3, 10]
+    await asyncio.sleep(0)
+    assert chk == [0, 1, 2, 3, 10, 0, 1, 2, 3]

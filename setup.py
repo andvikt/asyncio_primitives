@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='asyncio_primitives',
-    version='',
+    version='0.9',
     packages=['asyncio_primitives'],
     url='',
     license='',
