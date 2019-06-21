@@ -147,6 +147,9 @@ async def test_rule():
     await utils.notify_many(cond1, cond2)
     assert hitcnt == 2
 
+    async with hello():
+        raise utils.Continue()
+
     async with hello() as task:
         task.cancel()
 

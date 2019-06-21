@@ -12,7 +12,8 @@ ASYNC_RUN_FOO = typing.Union[
             typing.Awaitable[_T]
             , typing.Callable[[], typing.Union[_T, typing.Awaitable[_T]]]
         ]
-
+class Continue(Exception):
+    pass
 
 async def async_run(foo: ASYNC_RUN_FOO, *args, **kwargs):
     """
@@ -173,6 +174,8 @@ def endless_loop(foo):
         waiters.append(ftr)
         try:
             yield task
+        except Continue:
+            pass
         finally:
             waiters.remove(ftr)
 
