@@ -196,3 +196,19 @@ def rule(*conditions, check=lambda: True):
         return hello
 
     return deco
+
+async def notify_many(*conditions):
+    from .primitives import CustomCondition
+    c = iter(conditions)
+    async def iterate():
+        try:
+            x: CustomCondition = next(c)
+            if x is None:
+                return
+            async with x:
+                await iterate()
+                await x.notify_all()
+        except StopIteration:
+            return
+
+    await iterate()

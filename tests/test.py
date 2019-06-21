@@ -142,5 +142,8 @@ async def test_rule():
         await cond2.fast_notify()
 
     assert hitcnt == 1
+
+    await utils.notify_many(cond1, cond2)
+    assert hitcnt == 2
     task.cancel()
     return
