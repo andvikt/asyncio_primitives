@@ -135,13 +135,11 @@ async def test_rule():
             await cond1.notify_all()
 
     async with hello() as task:
-        async with cond2:
-            await cond2.notify_all()
+        await cond2.fast_notify()
 
     async with hello() as task:
-        async with cond2:
-            g = 2
-            await cond2.notify_all()
+        g = 2
+        await cond2.fast_notify()
 
     assert hitcnt == 1
     task.cancel()

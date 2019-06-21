@@ -31,3 +31,12 @@ class CustomCondition(asyncio.Condition):
         super().notify_all()
         await asyncio.gather(*list(self.exits)[:-1])
 
+    async def fast_notify(self):
+        """
+        Just a shorthand of
+        async with self:
+            await self.notify_all()
+        :return:
+        """
+        async with self:
+            await self.notify_all()
