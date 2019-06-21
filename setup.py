@@ -2,12 +2,12 @@ from setuptools import setup
 
 setup(
     name='asyncio_primitives',
-    version='0.9',
+    version='1.0',
     packages=['asyncio_primitives'],
     url='',
     license='',
     author='andrewgermanovich',
     author_email='',
     description='',
-    tests_require = ['pytest', 'pytest-asyncio']
+    tests_require = ['pytest', 'pytest-asyncio', 'pytest-timeout']
 )
