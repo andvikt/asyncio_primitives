@@ -109,7 +109,10 @@ async def test_endless_loop():
             g = 2
             await cond2.notify_all()
 
-    assert hitcnt == 1
+    await cond1.fast_notify()
+    await cond2.fast_notify()
+
+    assert hitcnt == 3
     task.cancel()
     return
 
@@ -146,6 +149,11 @@ async def test_rule():
 
     await utils.notify_many(cond1, cond2)
     assert hitcnt == 2
+
+    await cond1.fast_notify()
+    await cond2.fast_notify()
+
+    assert hitcnt == 4
 
     async with hello():
         raise utils.Continue()

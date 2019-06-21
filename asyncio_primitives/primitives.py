@@ -40,3 +40,4 @@ class CustomCondition(asyncio.Condition):
         """
         async with self:
             await self.notify_all()
+        await asyncio.sleep(0)
