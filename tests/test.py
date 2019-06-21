@@ -141,9 +141,18 @@ async def test_rule():
         g = 2
         await cond2.fast_notify()
 
+
     assert hitcnt == 1
 
     await utils.notify_many(cond1, cond2)
     assert hitcnt == 2
-    task.cancel()
+
+    async with hello() as task:
+        task.cancel()
+
+    with pytest.raises(RuntimeError):
+        await asyncio.sleep(0)
+        async with hello() as task:
+            pass
+
     return

@@ -166,12 +166,13 @@ def endless_loop(foo):
 
     @asynccontextmanager
     async def context() -> asyncio.Task:
+        if (task.done() or task.cancelled()):
+            raise RuntimeError(f'Task is finished')
         await started.wait()
         ftr = asyncio.Future()
         waiters.append(ftr)
         try:
             yield task
-            await ftr
         finally:
             waiters.remove(ftr)
 
