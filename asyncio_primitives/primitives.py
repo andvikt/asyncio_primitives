@@ -1,6 +1,4 @@
 import asyncio
-from contextlib import AbstractAsyncContextManager
-from . import utils
 from collections import deque
 import typing
 
@@ -19,17 +17,15 @@ class CustomCondition(asyncio.Condition):
 
     async def __aenter__(self):
         ret = await super().__aenter__()
-        self.exits.append(asyncio.Future())
         return ret
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        fut = self.exits.popleft()
-        fut.set_result(True)
         await super().__aexit__(exc_type, exc_val, exc_tb)
 
     async def notify_all(self) -> None:
         super().notify_all()
-        await asyncio.gather(*list(self.exits)[:-1])
+        await asyncio.gather(*list(self.exits))
+        self.exits.clear()
 
     async def fast_notify(self):
         """
@@ -40,4 +36,3 @@ class CustomCondition(asyncio.Condition):
         """
         async with self:
             await self.notify_all()
-        await asyncio.sleep(0)

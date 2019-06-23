@@ -3,77 +3,54 @@ import pytest
 import asyncio_primitives.primitives
 from asyncio_primitives import wait_started, utils
 import asyncio
+import random
 
 pytestmark = pytest.mark.asyncio
 
 
-@pytest.mark.parametrize('n_tasks', [1, 8])
+async def cancel(task):
+    with pytest.raises(asyncio.CancelledError):
+        task.cancel()
+        await task
+
+
+
+@pytest.mark.parametrize('n_tasks', [1, 100])
+@pytest.mark.timeout(1.6)
 async def test_custom_condition(n_tasks):
+
 
     cond1 = asyncio_primitives.primitives.CustomCondition()
     cond2 = asyncio_primitives.primitives.CustomCondition()
 
     hitcnt = 0
 
-    async def hello():
+    async def hello(started):
         nonlocal hitcnt
+        await started
         while True:
             async with utils.wait_for_any(cond1, cond2) as al:
                 await al
                 hitcnt+=1
-                await asyncio.sleep(1)
+                await asyncio.sleep(random.random() * 0.5)
+
+    task = await utils.wait_started(*[hello for x in range(n_tasks)])
+
+    await cond1.fast_notify()
+    await cond2.fast_notify()
+
+    await utils.notify_many(cond1, cond2)
+
+    assert hitcnt==n_tasks * 3
+
+    with pytest.raises(asyncio.CancelledError):
+        task.cancel()
+        await task
 
 
-    tasks = [asyncio.create_task(hello()) for x in range(n_tasks)]
-
-    await asyncio.sleep(0.1)
-    async with cond1:
-        await cond1.notify_all()
-    # we need to wait some time for new while-cycle to start
-    await asyncio.sleep(0.1)
-    async with cond2:
-        await cond2.notify_all()
-    assert hitcnt==n_tasks * 2
-
-    for x in range(n_tasks):
-        tasks[x].cancel()
-
-
-@pytest.mark.parametrize('n_tasks', [1, 8])
-@pytest.mark.timeout(1.3)
-async def test_custom_check(n_tasks):
-
-    cond1 = asyncio_primitives.primitives.CustomCondition()
-    cond2 = asyncio_primitives.primitives.CustomCondition()
-
-    hitcnt = 0
-    g = 0
-
-    async def hello():
-        nonlocal hitcnt, g
-        async with utils.wait_for_any(cond1, cond2, check=lambda: g == 5) as fut:
-            await fut
-            hitcnt+=1
-            await asyncio.sleep(1)
-
-
-    tasks = [asyncio.create_task(hello()) for x in range(n_tasks)]
-
-    await asyncio.sleep(0.1)
-    async with cond1:
-        await cond1.notify_all()
-    await asyncio.sleep(0.1)
-    g = 5
-    async with cond2:
-        await cond2.notify_all()
-
-    assert hitcnt == n_tasks
-
-    for x in range(n_tasks):
-        tasks[x].cancel()
-
-
-async def test_endless_loop():
+@pytest.mark.parametrize('n_tasks', [1, 100])
+@pytest.mark.timeout(0.6)
+async def test_endless_loop(n_tasks):
 
     cond1 = asyncio_primitives.primitives.CustomCondition()
     cond2 = asyncio_primitives.primitives.CustomCondition()
@@ -82,42 +59,32 @@ async def test_endless_loop():
     g = 0
 
     @utils.endless_loop
-    async def hello(started):
+    async def hello(y, uhh):
         nonlocal hitcnt, g
+        assert y == 1, uhh == 2
         async with utils.wait_for_any(cond1, cond2) as cond:
-            started.set()
             await cond
             if g!=2:
                 return
             hitcnt += 1
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.25)
 
-    # endless loop - декоратор, который возвращает корутину контекст
-    # при входе в контекст проверяется, запущена корутина или нет
-    # контекст отдает текущую задачу, которую можно отменить
+    tasks = await asyncio.gather(*[hello(1, uhh=2) for i in range(n_tasks)])
 
-    async with hello() as task:
-        async with cond1:
-            await cond1.notify_all()
-
-    async with hello() as task:
-        async with cond2:
-            await cond2.notify_all()
-
-    async with hello() as task:
-        async with cond2:
-            g = 2
-            await cond2.notify_all()
-
-    await cond1.fast_notify()
     await cond2.fast_notify()
+    assert hitcnt == 0
+    g = 2
+    await asyncio.gather(*[cond1.fast_notify() for i in range(4)])
+    assert hitcnt == 1 * n_tasks
+    await utils.notify_many(cond1, cond2)
+    assert hitcnt == 2 * n_tasks
 
-    assert hitcnt == 3
-    task.cancel()
-    return
+    await asyncio.gather(*[cancel(task) for task in tasks])
 
 
-async def test_rule():
+@pytest.mark.parametrize('n_tasks', [1, 100])
+@pytest.mark.timeout(0.6)
+async def test_rule(n_tasks):
 
 
     cond1 = asyncio_primitives.primitives.CustomCondition()
@@ -126,44 +93,47 @@ async def test_rule():
     hitcnt = 0
     g = 0
 
-    @utils.rule(cond1, cond2, check=lambda:g==2)
-    async def hello():
+    @utils.rule(cond1, cond2, check=lambda: g == 2)
+    async def hello(u, y):
         nonlocal hitcnt
+        assert u == 1, y == 2
         hitcnt += 1
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.25)
 
-
-    async with hello() as task:
-        async with cond1:
-            await cond1.notify_all()
-
-    async with hello() as task:
-        await cond2.fast_notify()
-
-    async with hello() as task:
-        g = 2
-        await cond2.fast_notify()
-
-
-    assert hitcnt == 1
-
-    await utils.notify_many(cond1, cond2)
-    assert hitcnt == 2
+    tasks = await asyncio.gather(*[hello(1, y=2) for i in range(n_tasks)])
 
     await cond1.fast_notify()
+    assert hitcnt == 0
+
+    g = 2
     await cond2.fast_notify()
+    assert hitcnt == 1 * n_tasks
 
-    assert hitcnt == 4
+    await utils.notify_many(cond1, cond2)
+    assert hitcnt == 2 * n_tasks
 
-    async with hello():
+    await asyncio.gather(*[cancel(task) for task in tasks])
+
+
+async def test_errors():
+
+    @utils.endless_loop
+    async def hello():
+        raise asyncio.CancelledError()
+
+
+    task: asyncio.Task = await hello()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    @utils.endless_loop
+    async def hy():
         raise utils.Continue()
 
-    async with hello() as task:
-        task.cancel()
+    task = await hy()
+    with pytest.warns(utils.ErrInLoop):
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(task, timeout=0.5)
 
-    with pytest.raises(RuntimeError):
-        await asyncio.sleep(0)
-        async with hello() as task:
-            pass
-
-    return
+    await cancel(task)

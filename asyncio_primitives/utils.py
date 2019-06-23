@@ -1,9 +1,12 @@
 import typing
 import asyncio
 from logging import getLogger
-from contextlib import asynccontextmanager, AbstractAsyncContextManager
+from contextlib import asynccontextmanager, AbstractAsyncContextManager, contextmanager, AsyncExitStack
 from collections import deque
 from dataclasses import dataclass, field
+from functools import wraps
+
+import warnings
 
 logger = getLogger('async_run')
 _T = typing.TypeVar('_T')
@@ -12,7 +15,11 @@ ASYNC_RUN_FOO = typing.Union[
             typing.Awaitable[_T]
             , typing.Callable[[], typing.Union[_T, typing.Awaitable[_T]]]
         ]
+
 class Continue(Exception):
+    pass
+
+class ErrInLoop(Warning):
     pass
 
 async def async_run(foo: ASYNC_RUN_FOO, *args, **kwargs):
@@ -33,35 +40,27 @@ async def async_run(foo: ASYNC_RUN_FOO, *args, **kwargs):
         raise TypeError(f'{foo} is not callable or awaitable')
 
 
-async def wait_started(foo: ASYNC_RUN_FOO
-                       , cancel_callback: ASYNC_RUN_FOO = None
-                       ) -> asyncio.Task:
+async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
     """
-    Helps to run some foo as a task and wait for started
+    Helps to run some foo as a task and wait for it to be started, foo must accept as a first argument started callback
     :param foo: some async function or coroutine
     :param cancel_callback:
     :return:
     """
-    started = asyncio.Event()
+    started = [asyncio.Future() for x in range(len(foos))]
 
-    async def start():
-        started.set()
+    async def start(st):
+        st.set_result(True)
 
     async def wrap():
         try:
-            await asyncio.gather(async_run(foo), start())
+            await asyncio.gather(*[async_run(foo, start(started[i]), **kwargs) for i, foo in enumerate(foos)])
         except asyncio.CancelledError:
-            logger.debug(f'{foo} cancelled')
+            logger.debug(f'{foos} cancelled')
             raise
-        except Exception as err:
-            raise err
-        finally:
-            if cancel_callback:
-                await async_run(cancel_callback)
 
     ret = asyncio.create_task(wrap())
-    await started.wait()
-    await asyncio.sleep(0)
+    await asyncio.gather(*started)
     return mark(ret, markers=['_for_cancel'])
 
 
@@ -89,8 +88,11 @@ async def cancel_all():
             await x
 
 
+from .primitives import CustomCondition
+
+
 @asynccontextmanager
-async def wait_for_any(*conditions: asyncio.Condition, check=(lambda : True)):
+async def wait_for_any(*conditions: CustomCondition):
     """
     Contextmanager, waits for any of the condition to happen, when happens, enters context, on context exit informs
     all the conditions that it has exited context
@@ -99,120 +101,85 @@ async def wait_for_any(*conditions: asyncio.Condition, check=(lambda : True)):
     :return:
     """
 
-    from .primitives import CustomCondition
+    ftr = asyncio.Future()
+    ex = asyncio.Future()
+    try:
+        async with AsyncExitStack() as context:
+            await asyncio.gather(*[context.enter_async_context(x) for x in conditions])
+            for x in conditions:
+                x._waiters.append(ftr)
+                x.exits.append(ex)
 
-    async def add_to_waiters():
-        c = iter(conditions)
-        ftr = asyncio.Future()
-        async def iterate():
-            try:
-                x = next(c)
-                if x is None:
-                    return
-                async with x:
-                    x._waiters.append(ftr)
-                    if isinstance(x, CustomCondition):
-                        x.exits.append(asyncio.Future())
-                    await iterate()
-            except StopIteration:
-                pass
-        await iterate()
-        return ftr
+        yield ftr
 
-    async def exit(ftr):
+        if not (ftr.done() or ftr.cancelled()):
+            raise RuntimeError('Future is not awaited')
+
+    finally:
+        ex.set_result(True)
         for x in conditions:
             if ftr in x._waiters:
                 x._waiters.remove(ftr)
-            if isinstance(x, CustomCondition):
-                ftr = x.exits.popleft()
-                ftr.set_result(True)
 
-    ftr = await add_to_waiters()
 
-    async def wait():
-        nonlocal ftr
-        await ftr
-        while not check():
-            await exit(ftr)
-            await asyncio.sleep(0)
-            ftr = await add_to_waiters()
-            await ftr
+@contextmanager
+def ignoreerror(*errors):
     try:
-        yield wait()
-    finally:
-        if not ftr.done():
-            raise RuntimeError(f'Condition was not awaiten')
-        await exit(ftr)
-
-
+        yield
+    except Exception as err:
+        if err.__class__ not in errors:
+            raise
 
 
 def endless_loop(foo):
     """
-    Decorator. Used to wrap a foo into endless loop, start it immediate
-    Returns context manager, that exits context only when the next loop cycle finishes
+    Decorate foo, when decorated foo is called, it starts a task, where foo is called in endless while-true loop
+    Note, foo must be asyncfoo end it must take some time to act, if it is called more often them WARN_FAST_LOOP time,
+    the warning will be raised
+    When errors raised inside foo, they are ignored, only warning will be produced
+    :param _foo:
     :return:
     """
-    started = asyncio.Event()
-    waiters: typing.Deque[asyncio.Future] = deque()
+    @wraps(foo)
+    async def wrapper(*args, **kwargs) -> asyncio.Task:
+        async def start(started):
+            await started
+            while True:
+                try:
+                    await foo(*args, **kwargs)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    warnings.warn(ErrInLoop(f'Error in endless loop, continue\n{err}'))
+                    await asyncio.sleep(0)
 
-    async def start():
-        while True:
-            try:
-                await foo(started)
-            finally:
-                for x in waiters:
-                    x.set_result(True)
-                started.clear()
-
-    @asynccontextmanager
-    async def context() -> asyncio.Task:
-        if (task.done() or task.cancelled()):
-            raise RuntimeError(f'Task is finished')
-        await started.wait()
-        ftr = asyncio.Future()
-        waiters.append(ftr)
-        try:
-            yield task
-        except Continue:
-            pass
-        finally:
-            waiters.remove(ftr)
-
-    task = asyncio.create_task(start())
-
-    return context
+        return await wait_started(start)
+    return wrapper
 
 
 def rule(*conditions, check=lambda: True):
 
     def deco(foo):
 
-        @endless_loop
-        async def hello(started):
-            async with wait_for_any(*conditions) as cond:
-                started.set()
-                await cond
-                if not check():
-                    return
-                await async_run(foo)
+        @wraps(foo)
+        async def wrapper(*args, **kwargs):
+            @endless_loop
+            async def run():
+                async with wait_for_any(*conditions) as cond:
+                    await cond
+                    if not check():
+                        return
+                    await async_run(foo, *args, **kwargs)
 
-        return hello
+            return await run()
+
+        return wrapper
 
     return deco
 
-async def notify_many(*conditions):
-    from .primitives import CustomCondition
-    c = iter(conditions)
-    async def iterate():
-        try:
-            x: CustomCondition = next(c)
-            if x is None:
-                return
-            async with x:
-                await iterate()
-                await x.notify_all()
-        except StopIteration:
-            return
 
-    await iterate()
+async def notify_many(*conditions: CustomCondition):
+
+    async with AsyncExitStack() as stack:
+        await asyncio.gather(*[stack.enter_async_context(x) for x in conditions])
+        await asyncio.gather(*[x.notify_all() for x in conditions])
