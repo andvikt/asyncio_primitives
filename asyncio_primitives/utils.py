@@ -78,7 +78,8 @@ async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
         try:
             await asyncio.gather(*[async_run(foo, start(started[i]), **kwargs) for i, foo in enumerate(foos)])
         except asyncio.CancelledError:
-            logger.debug(f'{foos} cancelled')
+            for x in foos:
+                logger.debug(f'task {getattr(x, "_loop_name", x.__name__)} cancelled')
             raise
 
     ret = asyncio.create_task(wrap())
@@ -158,7 +159,8 @@ def endless_loop(foo):
                 except Exception as err:
                     warnings.warn(ErrInLoop(f'Error in endless loop, continue\n{err}'))
                     await asyncio.sleep(0)
-
+        _name = getattr(foo, '_loop_name', foo.__name__)
+        setattr(start, '_loop_name', _name)
         return await wait_started(start)
     return wrapper
 
@@ -170,7 +172,7 @@ def rule(*conditions, check=lambda: True):
         @wraps(foo)
         @mark_starter
         async def wrapper(*args, **kwargs):
-            @endless_loop
+
             async def run():
                 async with wait_for_any(*conditions) as cond:
                     await cond
@@ -178,6 +180,8 @@ def rule(*conditions, check=lambda: True):
                         return
                     await async_run(foo, *args, **kwargs)
 
+            setattr(run, '_loop_name', foo.__name__)
+            run = endless_loop(run)
             return await run()
 
         return wrapper

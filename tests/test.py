@@ -1,5 +1,6 @@
+from logging import basicConfig, DEBUG
+basicConfig(level=DEBUG)
 import pytest
-
 import asyncio_primitives.primitives
 from asyncio_primitives import wait_started, utils
 import asyncio
@@ -49,7 +50,7 @@ async def test_custom_condition(n_tasks):
 
 
 @pytest.mark.parametrize('n_tasks', [1, 100])
-#@pytest.mark.timeout(0.6)
+@pytest.mark.timeout(0.7)
 async def test_endless_loop(n_tasks):
 
     cond1 = asyncio_primitives.primitives.CustomCondition()
