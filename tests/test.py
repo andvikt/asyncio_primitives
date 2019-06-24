@@ -49,7 +49,7 @@ async def test_custom_condition(n_tasks):
 
 
 @pytest.mark.parametrize('n_tasks', [1, 100])
-@pytest.mark.timeout(0.6)
+#@pytest.mark.timeout(0.6)
 async def test_endless_loop(n_tasks):
 
     cond1 = asyncio_primitives.primitives.CustomCondition()
@@ -69,6 +69,7 @@ async def test_endless_loop(n_tasks):
             hitcnt += 1
             await asyncio.sleep(0.25)
 
+    assert utils.is_starter(hello)
     tasks = await asyncio.gather(*[hello(1, uhh=2) for i in range(n_tasks)])
 
     await cond2.fast_notify()
@@ -100,6 +101,7 @@ async def test_rule(n_tasks):
         hitcnt += 1
         await asyncio.sleep(0.25)
 
+    assert utils.is_starter(hello)
     tasks = await asyncio.gather(*[hello(1, y=2) for i in range(n_tasks)])
 
     await cond1.fast_notify()

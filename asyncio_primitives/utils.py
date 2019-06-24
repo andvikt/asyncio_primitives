@@ -40,6 +40,28 @@ async def async_run(foo: ASYNC_RUN_FOO, *args, **kwargs):
         raise TypeError(f'{foo} is not callable or awaitable')
 
 
+def mark(foo=None, *, markers: typing.Iterable[str]):
+    """
+    Add some markers to foo
+    :param foo: any object
+    :param args: some str markers
+    :return:
+    """
+    def deco(_foo):
+        for x in markers:
+            try:
+                setattr(_foo, x, True)
+            except AttributeError:
+                raise
+        return _foo
+    return deco(foo) if foo is not None else deco
+
+
+def mark_starter(foo):
+    return mark(foo, markers=['_starter'])
+
+
+@mark_starter
 async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
     """
     Helps to run some foo as a task and wait for it to be started, foo must accept as a first argument started callback
@@ -62,23 +84,6 @@ async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
     ret = asyncio.create_task(wrap())
     await asyncio.gather(*started)
     return mark(ret, markers=['_for_cancel'])
-
-
-def mark(foo=None, *, markers: typing.Iterable[str]):
-    """
-    Add some markers to foo
-    :param foo: any object
-    :param args: some str markers
-    :return:
-    """
-    def deco(_foo):
-        for x in markers:
-            try:
-                setattr(_foo, x, True)
-            except AttributeError:
-                raise
-        return _foo
-    return deco(foo) if foo is not None else deco
 
 
 async def cancel_all():
@@ -141,6 +146,7 @@ def endless_loop(foo):
     :return:
     """
     @wraps(foo)
+    @mark_starter
     async def wrapper(*args, **kwargs) -> asyncio.Task:
         async def start(started):
             await started
@@ -162,6 +168,7 @@ def rule(*conditions, check=lambda: True):
     def deco(foo):
 
         @wraps(foo)
+        @mark_starter
         async def wrapper(*args, **kwargs):
             @endless_loop
             async def run():
@@ -183,3 +190,6 @@ async def notify_many(*conditions: CustomCondition):
     async with AsyncExitStack() as stack:
         await asyncio.gather(*[stack.enter_async_context(x) for x in conditions])
         await asyncio.gather(*[x.notify_all() for x in conditions])
+
+def is_starter(foo):
+    return hasattr(foo, '_starter')
