@@ -61,6 +61,18 @@ def mark_starter(foo):
     return mark(foo, markers=['_starter'])
 
 
+def set_name(name, force=False):
+    def deco(foo):
+        if not (hasattr(foo, '_loop_name')) or force:
+            setattr(foo, '_loop_name', name)
+        return foo
+    return deco
+
+
+def get_name(foo):
+    return getattr(foo, '_loop_name', foo.__name__)
+
+
 @mark_starter
 async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
     """
@@ -79,7 +91,7 @@ async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
             await asyncio.gather(*[async_run(foo, start(started[i]), **kwargs) for i, foo in enumerate(foos)])
         except asyncio.CancelledError:
             for x in foos:
-                logger.debug(f'task {getattr(x, "_loop_name", x.__name__)} cancelled')
+                logger.debug(f'task {get_name(x)} cancelled')
             raise
 
     ret = asyncio.create_task(wrap())
@@ -149,6 +161,8 @@ def endless_loop(foo):
     @wraps(foo)
     @mark_starter
     async def wrapper(*args, **kwargs) -> asyncio.Task:
+
+        @set_name(get_name(foo))
         async def start(started):
             await started
             while True:
@@ -159,8 +173,6 @@ def endless_loop(foo):
                 except Exception as err:
                     warnings.warn(ErrInLoop(f'Error in endless loop, continue\n{err}'))
                     await asyncio.sleep(0)
-        _name = getattr(foo, '_loop_name', foo.__name__)
-        setattr(start, '_loop_name', _name)
         return await wait_started(start)
     return wrapper
 
@@ -173,17 +185,15 @@ def rule(*conditions, check=lambda: True):
         @mark_starter
         async def wrapper(*args, **kwargs):
 
+            @endless_loop
+            @set_name(foo.__name__)
             async def run():
                 async with wait_for_any(*conditions) as cond:
                     await cond
                     if not check():
                         return
                     await async_run(foo, *args, **kwargs)
-
-            setattr(run, '_loop_name', foo.__name__)
-            run = endless_loop(run)
             return await run()
-
         return wrapper
 
     return deco

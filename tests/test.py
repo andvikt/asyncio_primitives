@@ -26,6 +26,7 @@ async def test_custom_condition(n_tasks):
 
     hitcnt = 0
 
+    @utils.set_name('test name')
     async def hello(started):
         nonlocal hitcnt
         await started
