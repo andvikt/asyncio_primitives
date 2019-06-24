@@ -61,6 +61,7 @@ async def test_endless_loop(n_tasks):
     g = 0
 
     @utils.endless_loop
+    @utils.set_name('test_end_loop')
     async def hello(y, uhh):
         nonlocal hitcnt, g
         assert y == 1, uhh == 2
@@ -86,7 +87,7 @@ async def test_endless_loop(n_tasks):
 
 
 @pytest.mark.parametrize('n_tasks', [1, 100])
-@pytest.mark.timeout(0.6)
+@pytest.mark.timeout(0.7)
 async def test_rule(n_tasks):
 
 
@@ -97,6 +98,7 @@ async def test_rule(n_tasks):
     g = 0
 
     @utils.rule(cond1, cond2, check=lambda: g == 2)
+    @utils.set_name('test_rule')
     async def hello(u, y):
         nonlocal hitcnt
         assert u == 1, y == 2

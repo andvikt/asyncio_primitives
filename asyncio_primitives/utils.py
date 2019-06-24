@@ -161,7 +161,6 @@ def endless_loop(foo):
     @wraps(foo)
     @mark_starter
     async def wrapper(*args, **kwargs) -> asyncio.Task:
-
         @set_name(get_name(foo))
         async def start(started):
             await started
@@ -186,7 +185,7 @@ def rule(*conditions, check=lambda: True):
         async def wrapper(*args, **kwargs):
 
             @endless_loop
-            @set_name(foo.__name__)
+            @set_name(get_name(foo))
             async def run():
                 async with wait_for_any(*conditions) as cond:
                     await cond
