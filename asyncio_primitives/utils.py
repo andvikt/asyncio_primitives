@@ -1,6 +1,6 @@
 import typing
 import asyncio
-from logging import getLogger
+from logging import getLogger, Logger
 from contextlib import asynccontextmanager, AbstractAsyncContextManager, contextmanager, AsyncExitStack
 from collections import deque
 from dataclasses import dataclass, field
@@ -72,6 +72,14 @@ def set_name(name, force=False):
 def get_name(foo):
     return getattr(foo, '_loop_name', foo.__name__)
 
+def set_logger(logger):
+    def deco(foo):
+        setattr(foo, '_logger', logger)
+        return foo
+    return deco
+
+def get_logger(foo)->Logger:
+    return getattr(foo, '_logger', logger)
 
 @mark_starter
 async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
@@ -91,7 +99,7 @@ async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
             await asyncio.gather(*[async_run(foo, start(started[i]), **kwargs) for i, foo in enumerate(foos)])
         except asyncio.CancelledError:
             for x in foos:
-                logger.debug(f'task {get_name(x)} cancelled')
+                get_logger(x).debug(f'task {get_name(x)} cancelled')
             raise
 
     ret = asyncio.create_task(wrap())
@@ -162,6 +170,7 @@ def endless_loop(foo):
     @mark_starter
     async def wrapper(*args, **kwargs) -> asyncio.Task:
         @set_name(get_name(foo))
+        @set_logger(get_logger(foo).getChild('loop'))
         async def start(started):
             await started
             while True:
@@ -171,7 +180,8 @@ def endless_loop(foo):
                     raise
                 except Exception as err:
                     warnings.warn(ErrInLoop(f'Error in endless loop, continue\n{err}'))
-                    await asyncio.sleep(0)
+                    get_logger(foo).getChild('loop').error(str(err))
+                    await asyncio.sleep(0.1)
         return await wait_started(start)
     return wrapper
 
@@ -186,6 +196,7 @@ def rule(*conditions, check=lambda: True):
 
             @endless_loop
             @set_name(get_name(foo))
+            @set_logger(get_logger(foo))
             async def run():
                 async with wait_for_any(*conditions) as cond:
                     await cond
