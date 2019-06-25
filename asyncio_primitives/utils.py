@@ -16,11 +16,19 @@ ASYNC_RUN_FOO = typing.Union[
             , typing.Callable[[], typing.Union[_T, typing.Awaitable[_T]]]
         ]
 
+
+def set_default_logger(lg: Logger):
+    global logger
+    logger = lg
+
+
 class Continue(Exception):
     pass
 
+
 class ErrInLoop(Warning):
     pass
+
 
 async def async_run(foo: ASYNC_RUN_FOO, *args, **kwargs):
     """
@@ -72,14 +80,17 @@ def set_name(name, force=False):
 def get_name(foo):
     return getattr(foo, '_loop_name', foo.__name__)
 
+
 def set_logger(logger):
     def deco(foo):
         setattr(foo, '_logger', logger)
         return foo
     return deco
 
+
 def get_logger(foo)->Logger:
     return getattr(foo, '_logger', logger)
+
 
 @mark_starter
 async def wait_started(*foos: ASYNC_RUN_FOO, **kwargs) -> asyncio.Task:
